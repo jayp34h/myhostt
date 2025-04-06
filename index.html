@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Find Nearby Hospitals - myMedihelp</title>
+  <style>
+    :root {
+      --primary-color: #3b82f6;
+      --secondary-color: #1e40af;
+      --background-color: #f8fafc;
+      --text-color: #1e293b;
+      --border-color: #e2e8f0;
+      --shadow-color: rgba(0, 0, 0, 0.1);
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--background-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1 {
+      color: var(--secondary-color);
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+    
+    .card {
+      background-color: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px var(--shadow-color);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .location-btn {
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: block;
+      margin: 20px auto;
+      transition: all 0.3s ease;
+    }
+    
+    .location-btn:hover {
+      background-color: var(--secondary-color);
+      transform: translateY(-2px);
+    }
+    
+    .location-btn:disabled {
+      background-color: #9ca3af;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .location-status {
+      text-align: center;
+      margin: 10px 0;
+      font-weight: 500;
+    }
+    
+    .hospital-list {
+      margin-top: 20px;
+    }
+    
+    .hospital-item {
+      border-bottom: 1px solid var(--border-color);
+      padding: 15px 0;
+    }
+    
+    .hospital-item:last-child {
+      border-bottom: none;
+    }
+    
+    .hospital-name {
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--secondary-color);
+      margin-bottom: 5px;
+    }
+    
+    .hospital-distance {
+      font-weight: 600;
+      color: var(--primary-color);
+      margin-bottom: 5px;
+    }
+    
+    .hospital-details {
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    
+    .error-message {
+      color: #ef4444;
+      text-align: center;
+      margin: 10px 0;
+      font-weight: 500;
+    }
+    
+    .loading {
+      text-align: center;
+      margin: 20px 0;
+    }
+    
+    .spinner {
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border-left-color: var(--primary-color);
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Find Nearby Hospitals</h1>
+    
+    <div class="card">
+      <p>Click the button below to share your location and find the nearest hospitals and clinics in your area.</p>
+      <button id="locationBtn" class="location-btn" onclick="getLocation()">📍 Share My Location</button>
+      <p id="locationStatus" class="location-status">Please share your location to find nearby hospitals.</p>
+      
+      <div id="loading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <p>Searching for nearby hospitals...</p>
+      </div>
+      
+      <div id="errorMessage" class="error-message" style="display: none;"></div>
+      
+      <div id="hospitalResults" class="hospital-list" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script>
+    // DOM elements
+    const locationBtn = document.getElementById('locationBtn');
+    const locationStatus = document.getElementById('locationStatus');
+    const loading = document.getElementById('loading');
+    const errorMessage = document.getElementById('errorMessage');
+    const hospitalResults = document.getElementById('hospitalResults');
+    
+    // Base URL for API requests - ensure it always includes the protocol
+    const apiBaseUrl = (window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1') ? 
+                       'http://localhost:5000' : window.location.origin;
+    
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+      loading.style.display = 'none';
+      locationBtn.disabled = false;
+      locationStatus.textContent = 'Failed to get hospital information.';
+    }
+    
+    function getLocation() {
+      // Reset UI
+      errorMessage.style.display = 'none';
+      hospitalResults.style.display = 'none';
+      locationBtn.disabled = true;
+      locationStatus.textContent = 'Requesting your location...';
+      loading.style.display = 'block';
+      
+      if (!navigator.geolocation) {
+        showError("Geolocation is not supported by your browser. Please use a modern browser.");
+        locationBtn.disabled = false;
+        loading.style.display = 'none';
+        return;
+      }
+      
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      };
+      
+      navigator.geolocation.getCurrentPosition(
+        function(position) {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          locationStatus.textContent = `Location obtained: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+          sendLocationToServer(lat, lon);
+        },
+        function(error) {
+          locationBtn.disabled = false;
+          let errorMsg = "";
+          switch(error.code) {
+            case error.PERMISSION_DENIED:
+              errorMsg = "Location permission denied. Please allow location access and try again.";
+              break;
+            case error.POSITION_UNAVAILABLE:
+              errorMsg = "Location information is unavailable. Please try again later.";
+              break;
+            case error.TIMEOUT:
+              errorMsg = "Location request timed out. Please try again.";
+              break;
+            default:
+              errorMsg = "An unknown error occurred while getting your location.";
+          }
+          showError(errorMsg);
+          locationStatus.textContent = 'Failed to get your location.';
+        },
+        options
+      );
+    }
+    
+    function sendLocationToServer(lat, lon) {
+      fetch(`${apiBaseUrl}/location`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ latitude: lat, longitude: lon })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        loading.style.display = 'none';
+        locationBtn.disabled = false;
+        
+        if (data.error) {
+          showError(data.error);
+          return;
+        }
+        
+        if (data.hospitals && Array.isArray(data.hospitals)) {
+          displayHospitals(data.hospitals, data.formatted_results);
+          locationStatus.textContent = `Found ${data.hospitals.length} nearby hospitals/clinics`;
+        } else if (data.formatted_results) {
+          hospitalResults.style.display = 'block';
+          hospitalResults.innerHTML = `<p>${data.formatted_results}</p>`;
+          locationStatus.textContent = 'Search complete';
+        } else {
+          showError("No hospital information returned from server.");
+        }
+      })
+      .catch(error => {
+        showError(`Error: ${error.message}`);
+      });
+    }
+    
+    function displayHospitals(hospitals, formattedResults) {
+      hospitalResults.style.display = 'block';
+      
+      if (!hospitals || hospitals.length === 0 || typeof hospitals === 'object' && 'error' in hospitals) {
+        // Display the formatted message for errors or no results
+        hospitalResults.innerHTML = `<p>${formattedResults}</p>`;
+        return;
+      }
+      
+      // Clear previous results
+      hospitalResults.innerHTML = '<h2>Nearby Hospitals and Clinics</h2>';
+      
+      // Display each hospital
+      hospitals.forEach(hospital => {
+        const hospitalDiv = document.createElement('div');
+        hospitalDiv.className = 'hospital-item';
+        
+        const name = hospital.name || 'Unnamed Hospital/Clinic';
+        const distance = hospital.distance ? `${hospital.distance} km away` : 'Distance unknown';
+        
+        // Format address
+        let address = 'Address not available';
+        if (hospital.address) {
+          const addressParts = [];
+          const addr = hospital.address;
+          
+          if (addr.housenumber && addr.street) {
+            addressParts.push(`${addr.housenumber} ${addr.street}`);
+          } else if (addr.street) {
+            addressParts.push(addr.street);
+          }
+          
+          if (addr.city) addressParts.push(addr.city);
+          if (addr.postcode) addressParts.push(addr.postcode);
+          
+          if (addressParts.length > 0) {
+            address = addressParts.join(', ');
+          }
+        }
+        
+        // Format phone and website
+        const phone = hospital.phone || 'Phone not available';
+        const website = hospital.website || 'Website not available';
+        
+        // Build HTML
+        hospitalDiv.innerHTML = `
+          <div class="hospital-name">${name}</div>
+          <div class="hospital-distance">${distance}</div>
+          <div class="hospital-details">
+            <div><strong>Address:</strong> ${address}</div>
+            <div><strong>Phone:</strong> ${phone}</div>
+            <div><strong>Website:</strong> ${website ? `<a href="${website}" target="_blank">${website}</a>` : website}</div>
+          </div>
+        `;
+        
+        hospitalResults.appendChild(hospitalDiv);
+      });
+    }
+    
+    // Error handling is now consolidated in the showError function above
+  </script>
+</body>
+</html>
